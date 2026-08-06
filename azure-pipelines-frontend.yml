@@ -1,0 +1,59 @@
+# Azure DevOps pipeline — deploys frontend/ to Azure Static Web Apps
+#
+# Pipeline variables required (Pipelines → Edit → Variables):
+#   swaDeploymentToken   the Static Web App deployment token — mark as SECRET
+#   viteApiBase          e.g. https://essl-adms.azurewebsites.net
+#
+# viteApiBase is baked into the JS bundle at BUILD time. Change it and you must
+# re-run this pipeline — restarting the Static Web App will not pick it up.
+
+trigger:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - frontend/*
+      - azure-pipelines-frontend.yml
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  nodeVersion: "22.x"
+
+steps:
+  - task: NodeTool@0
+    displayName: Use Node $(nodeVersion)
+    inputs:
+      versionSpec: $(nodeVersion)
+
+  - script: npm ci
+    displayName: Install dependencies
+    workingDirectory: frontend
+
+  - script: npm run build
+    displayName: Build dashboard
+    workingDirectory: frontend
+    env:
+      VITE_API_BASE: $(viteApiBase)
+
+  # Fail loudly if the backend URL never made it into the bundle, rather than
+  # shipping a dashboard that silently can't reach the API.
+  - script: |
+      if ! grep -rq "$(viteApiBase)" dist/assets/*.js; then
+        echo "##vso[task.logissue type=error]VITE_API_BASE was not baked into the bundle."
+        echo "Check the 'viteApiBase' pipeline variable is set."
+        exit 1
+      fi
+      echo "Verified: $(viteApiBase) is present in the build output."
+    displayName: Verify API base URL
+    workingDirectory: frontend
+
+  - task: AzureStaticWebApp@0
+    displayName: Deploy to Static Web Apps
+    inputs:
+      app_location: "frontend/dist"
+      skip_app_build: true
+      output_location: ""
+      azure_static_web_apps_api_token: $(swaDeploymentToken)
