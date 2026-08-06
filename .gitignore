@@ -8,7 +8,7 @@ dist/
 .env.production
 .env.example
 # Markdown files
-*.md
+
 
 # YAML files
 *.yml
