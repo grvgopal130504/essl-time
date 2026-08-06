@@ -1,3 +1,13 @@
 node_modules
 dist
+.env
 .env.local
+.env.development
+.env.production
+.env.example
+# Markdown files
+*.md
+
+# YAML files
+*.yml
+*.yaml
