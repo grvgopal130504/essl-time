@@ -42,7 +42,7 @@ export function emitEmployee(emp) {
   bus.emit("employee", emp);
 }
 
-export function recordDevice({ sn, ip, firmware }) {
+export function recordDevice({ sn, ip, firmware, name }) {
   if (!sn) return;
   const prev = deviceState.get(sn) || { sn, punches: 0 };
   const next = {
@@ -50,10 +50,45 @@ export function recordDevice({ sn, ip, firmware }) {
     sn,
     ip: ip || prev.ip,
     firmware: firmware || prev.firmware,
+    // A handshake must never wipe the human-assigned label.
+    name: name !== undefined ? name : prev.name ?? null,
     lastSeen: new Date().toISOString(),
   };
   deviceState.set(sn, next);
   bus.emit("device", next);
+}
+
+/**
+ * Rename a device from the dashboard. Kept in the same map the WebSocket
+ * snapshot is built from, so every open tab sees the new label immediately.
+ */
+export function setDeviceLabel(sn, name) {
+  if (!sn) return null;
+  const prev = deviceState.get(sn) || { sn, punches: 0 };
+  const next = { ...prev, sn, name: name || null };
+  deviceState.set(sn, next);
+  bus.emit("device", next);
+  return next;
+}
+
+/**
+ * Seed the in-memory map from the devices table at startup, so names (and the
+ * device list itself) survive a restart instead of waiting for the next poll.
+ */
+export function hydrateDevices(rows = []) {
+  for (const r of rows) {
+    const sn = r.serial_number || r.sn;
+    if (!sn || deviceState.has(sn)) continue;
+    deviceState.set(sn, {
+      sn,
+      name: r.name || null,
+      ip: r.ip_address || null,
+      firmware: r.firmware || null,
+      lastSeen: r.last_seen_at ? new Date(r.last_seen_at).toISOString() : null,
+      punches: 0,
+    });
+  }
+  return deviceState.size;
 }
 
 export function bumpDevicePunchCount(sn) {

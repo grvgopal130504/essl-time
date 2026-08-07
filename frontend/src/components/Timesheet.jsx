@@ -10,6 +10,12 @@ import {
   sortDays,
   summarise,
 } from "../lib/timesheetView.js";
+import {
+  DEVICE_FILTER_KEYS,
+  deviceOptions,
+  snsIn,
+} from "../lib/deviceFilter.js";
+import { useDeviceFilter } from "../hooks/useDeviceFilter.js";
 
 const todayStr = () => {
   const d = new Date();
@@ -45,6 +51,8 @@ const DAY_BADGE = {
   HALF_DAY_FIRST: "blue",
   HALF_DAY_SECOND: "blue",
   HALF_DAY_NO_OUT: "amber",
+  ABSENT: "red",
+  WEEKLY_OFF: "grey",
 };
 
 const SORT_ICON = { asc: "▲", desc: "▼" };
@@ -83,7 +91,7 @@ function SortHeader({ col, sort, onSort }) {
   );
 }
 
-export default function Timesheet({ punches }) {
+export default function Timesheet({ punches, devices = [] }) {
   const [from, setFrom] = useState(todayStr());
   const [to, setTo] = useState(todayStr());
   const [data, setData] = useState(null);
@@ -96,6 +104,8 @@ export default function Timesheet({ punches }) {
   const [dayType, setDayType] = useState("");
   const [flag, setFlag] = useState("");
   const [roster, setRoster] = useState([]);       // everyone who has ever punched
+  // Device choice survives a reload — see hooks/useDeviceFilter.js.
+  const [device, setDevice] = useDeviceFilter(DEVICE_FILTER_KEYS.timesheet);
 
   // Sorting — null direction means "server order" (newest date, then PIN).
   const [sort, setSort] = useState({ key: null, dir: null });
@@ -167,18 +177,40 @@ export default function Timesheet({ punches }) {
     setTo(todayStr());
   };
 
-  const filtersActive = !!(employee || query.trim() || dayType || flag);
+  const filtersActive = !!(employee || query.trim() || dayType || flag || device);
   const clearFilters = () => {
     setEmployee("");
     setQuery("");
     setDayType("");
     setFlag("");
+    setDevice("");
   };
+
+  // Every device known to the server, plus any serial present in this range.
+  const deviceList = useMemo(
+    () => deviceOptions(devices, snsIn(data?.days || [])),
+    [devices, data]
+  );
+
+  // Employees are scoped per device, so narrowing the device narrows the roster
+  // — otherwise the dropdown offers people who can't appear in the table.
+  const visibleRoster = useMemo(
+    () => (device ? roster.filter((r) => r.key.startsWith(`${device}:`)) : roster),
+    [roster, device]
+  );
+
+  // A selected employee belongs to one device; switching device would leave a
+  // selection that matches nothing, so drop it.
+  useEffect(() => {
+    if (device && employee && !employee.startsWith(`${device}:`)) setEmployee("");
+  }, [device, employee]);
 
   const visible = useMemo(
     () =>
-      data ? sortDays(filterDays(data.days, { employee, query, dayType, flag }), sort) : [],
-    [data, employee, query, dayType, flag, sort]
+      data
+        ? sortDays(filterDays(data.days, { employee, query, dayType, flag, device }), sort)
+        : [],
+    [data, employee, query, dayType, flag, device, sort]
   );
 
   const shown = useMemo(() => summarise(visible), [visible]);
@@ -198,10 +230,21 @@ export default function Timesheet({ punches }) {
 
       <div className="ts-toolbar ts-filters">
         <label className="ts-field ts-field-wide">
+          Device
+          <select value={device} onChange={(e) => setDevice(e.target.value)}>
+            {deviceList.map((o) => (
+              <option key={o.sn || "__all"} value={o.sn}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="ts-field ts-field-wide">
           Employee Name
           <select value={employee} onChange={(e) => setEmployee(e.target.value)}>
             <option value="">All employees</option>
-            {roster.map((r) => (
+            {visibleRoster.map((r) => (
               <option key={r.key} value={r.key}>
                 {r.name ? `${r.name} (#${r.pin})` : `PIN ${r.pin}`}
               </option>
@@ -299,6 +342,13 @@ export default function Timesheet({ punches }) {
               </div>
               <div className="stat-label">Full / half days</div>
             </div>
+            <div className={shown.absentDays ? "stat absentstat" : "stat"}>
+              <div className="stat-value">{shown.absentDays}</div>
+              <div className="stat-label">
+                Absent
+                {shown.weeklyOffDays > 0 && ` · ${shown.weeklyOffDays} weekly off`}
+              </div>
+            </div>
             <div className={shown.review ? "stat warnstat" : "stat"}>
               <div className="stat-value">{shown.review}</div>
               <div className="stat-label">Needs review</div>
@@ -346,7 +396,15 @@ export default function Timesheet({ punches }) {
                 {visible.map((d) => (
                   <tr
                     key={`${d.deviceSn}-${d.pin}-${d.workDate}`}
-                    className={d.needsReview ? "row-warn" : ""}
+                    className={
+                      d.dayType === "ABSENT"
+                        ? "row-absent"
+                        : d.dayType === "WEEKLY_OFF"
+                          ? "row-off"
+                          : d.needsReview
+                            ? "row-warn"
+                            : ""
+                    }
                   >
                     {/* data-label drives the stacked card layout below 760px,
                         where the header row is hidden. */}

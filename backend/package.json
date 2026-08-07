@@ -12,7 +12,8 @@
     "simulate": "node scripts/simulate-punch.js",
     "test:timesheet": "node scripts/test-timesheet.js",
     "test:feed-reset": "node scripts/test-feed-reset.js",
-    "test:feed-rollover": "node scripts/test-feed-rollover.js"
+    "test:feed-rollover": "node scripts/test-feed-rollover.js",
+    "test:absence": "node scripts/test-absence.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

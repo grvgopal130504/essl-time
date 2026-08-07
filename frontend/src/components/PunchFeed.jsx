@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../config.js";
 import { PAGE_SIZES, feedKey, mergeFeed, onlyDay, pageOf } from "../lib/feedView.js";
+import {
+  DEVICE_FILTER_KEYS,
+  deviceOptions,
+  filterByDevice,
+  snsIn,
+} from "../lib/deviceFilter.js";
+import { useDeviceFilter } from "../hooks/useDeviceFilter.js";
 
 const VERIFY_ICON = {
   Fingerprint: "☝",
@@ -59,15 +66,15 @@ function clockOffset(punchTime, received, toleranceSeconds = 120) {
   const hours = Math.abs(deltaSec) / 3600;
   return deltaSec < 0
     ? {
-        kind: "ahead",
-        label: `clock ahead ${span(hours)}`,
-        title: `The device stamped this punch ${span(hours)} in the future — its date/time is wrong. Check Menu → System → Date/Time.`,
-      }
+      kind: "ahead",
+      label: `clock ahead ${span(hours)}`,
+      title: `The device stamped this punch ${span(hours)} in the future — its date/time is wrong. Check Menu → System → Date/Time.`,
+    }
     : {
-        kind: "delayed",
-        label: `arrived ${span(hours)} late`,
-        title: `Reached the server ${span(hours)} after the device's timestamp. Either the device was offline and replayed a backlog, or its clock is slow.`,
-      };
+      kind: "delayed",
+      label: `Clock Difference ${span(hours)}`,
+      title: `Reached the server ${span(hours)} after the device's timestamp. Either the device was offline and replayed a backlog, or its clock is slow.`,
+    };
 }
 
 function ago(t) {
@@ -78,7 +85,7 @@ function ago(t) {
   return `${Math.floor(s / 86400)}d ago`;
 }
 
-export default function PunchFeed({ punches, names = {}, feedResetAt = null }) {
+export default function PunchFeed({ punches, names = {}, devices = [], feedResetAt = null }) {
   // Today's stored feed. The socket only carries what arrived while this tab
   // was open; this is everything the server has for the current local day.
   const [stored, setStored] = useState({ punches: [], total: 0, workDate: null, source: null });
@@ -110,17 +117,40 @@ export default function PunchFeed({ punches, names = {}, feedResetAt = null }) {
 
   // Live punches arriving after the initial fetch aren't in `stored`, so merge
   // them in rather than re-fetching on every punch.
-  const all = useMemo(
+  const today = useMemo(
     () => onlyDay(mergeFeed(punches, stored.punches), stored.workDate),
     [punches, stored.punches, stored.workDate]
   );
+
+  const [device, setDevice] = useDeviceFilter(DEVICE_FILTER_KEYS.feed);
+  // Serials seen today are folded in, so a device that punched but hasn't been
+  // registered yet is still selectable.
+  const options = useMemo(() => deviceOptions(devices, snsIn(today)), [devices, today]);
+
+  const all = useMemo(() => filterByDevice(today, device), [today, device]);
   const visible = useMemo(() => pageOf(all, limit), [all, limit]);
-  const total = Math.max(stored.total || 0, all.length);
+  // With a device selected the server's total counts every device, so the
+  // filtered length is the only honest number.
+  const total = device ? all.length : Math.max(stored.total || 0, all.length);
+
+  const deviceSelect = (
+    <label className="feed-device">
+      <span className="muted small">Device</span>
+      <select value={device} onChange={(e) => setDevice(e.target.value)}>
+        {options.map((o) => (
+          <option key={o.sn || "__all"} value={o.sn}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
 
   const controls = (
     <div className="feed-toolbar">
       <span className="muted small">
         Showing <strong>{visible.length}</strong> of {total} punch{total === 1 ? "" : "es"} today
+        {device && <> on <strong>{device}</strong></>}
         {stored.source === "memory" && (
           <span className="badge amber flag-badge" title="Postgres is unreachable — this is the in-memory buffer, which only holds what arrived since the server started.">
             {" "}memory only
@@ -128,6 +158,7 @@ export default function PunchFeed({ punches, names = {}, feedResetAt = null }) {
         )}
       </span>
       <div className="feed-pages">
+        {deviceSelect}
         {PAGE_SIZES.map((n) => (
           <button
             key={n}
@@ -143,6 +174,25 @@ export default function PunchFeed({ punches, names = {}, feedResetAt = null }) {
       </div>
     </div>
   );
+
+  // Filtered everything away, but the day does have punches on other devices.
+  if (!all.length && today.length) {
+    return (
+      <>
+        {controls}
+        <div className="empty">
+          <div className="empty-icon">▤</div>
+          <h2>No punches from this device today</h2>
+          <p>
+            {today.length} punch{today.length === 1 ? "" : "es"} arrived today from other devices.
+          </p>
+          <button className="btn" onClick={() => setDevice("")}>
+            Show all devices
+          </button>
+        </div>
+      </>
+    );
+  }
 
   if (!all.length) {
     return (
@@ -166,97 +216,97 @@ export default function PunchFeed({ punches, names = {}, feedResetAt = null }) {
 
   return (
     <>
-    {controls}
-    {error && <div className="notice">Couldn't load the feed: {error}</div>}
-    <div className="feed">
-      {visible.map((p, i) => {
-        const pin = p.pin;
-        const time = p.punchTime || p.punch_time;
-        const verifyLabel = p.verifyLabel || p.verify_label || "";
-        const sn = p.deviceSn || p.device_sn;
-        // Server clock: when this punch actually reached the database.
-        const receivedAt = p.receivedAt || p.received_at;
-        const offset = clockOffset(time, receivedAt);
-        // Derived role wins; fall back to the device's own status field.
-        const statusLabel =
-          p.roleLabel || p.directionLabel || p.statusLabel || p.status_label || `Status ${p.status}`;
-        const isOut = p.role ? p.role === "CHECK_OUT" : /out/i.test(statusLabel);
-        const isNeutral = p.role === "RECORDED";
-        // Live rename wins, then whatever the server attached to the punch.
-        const name = names[`${sn}:${pin}`] ?? p.employeeName ?? p.employee_name ?? null;
-        const initials = name
-          ? name.split(/\s+/).slice(0, 2).map((w) => w[0]).join("").toUpperCase()
-          : String(pin).slice(-3);
-        return (
-          <div key={feedKey(p)} className={`punch ${i === 0 ? "newest" : ""}`}>
-            <div className={`avatar ${isNeutral ? "neutral" : isOut ? "out" : "in"}`}>
-              {initials}
-            </div>
-            <div className="punch-main">
-              <div className="punch-row">
-                {name ? (
-                  <>
-                    <strong>{name}</strong>
-                    <span className="name mono">PIN {pin}</span>
-                  </>
-                ) : (
-                  <strong>PIN {pin}</strong>
-                )}
-                <span
-                  className={`badge ${isNeutral ? "grey" : isOut ? "red" : "green"}`}
-                  title={
-                    isNeutral
-                      ? "First half of the day — check-in stays at the first scan"
-                      : undefined
-                  }
-                >
-                  {statusLabel}
-                </span>
-                {p.duplicate && (
-                  <span className="badge amber" title="Within the de-bounce window — not counted">
-                    repeat scan
-                  </span>
-                )}
-                {offset && (
+      {controls}
+      {error && <div className="notice">Couldn't load the feed: {error}</div>}
+      <div className="feed">
+        {visible.map((p, i) => {
+          const pin = p.pin;
+          const time = p.punchTime || p.punch_time;
+          const verifyLabel = p.verifyLabel || p.verify_label || "";
+          const sn = p.deviceSn || p.device_sn;
+          // Server clock: when this punch actually reached the database.
+          const receivedAt = p.receivedAt || p.received_at;
+          const offset = clockOffset(time, receivedAt);
+          // Derived role wins; fall back to the device's own status field.
+          const statusLabel =
+            p.roleLabel || p.directionLabel || p.statusLabel || p.status_label || `Status ${p.status}`;
+          const isOut = p.role ? p.role === "CHECK_OUT" : /out/i.test(statusLabel);
+          const isNeutral = p.role === "RECORDED";
+          // Live rename wins, then whatever the server attached to the punch.
+          const name = names[`${sn}:${pin}`] ?? p.employeeName ?? p.employee_name ?? null;
+          const initials = name
+            ? name.split(/\s+/).slice(0, 2).map((w) => w[0]).join("").toUpperCase()
+            : String(pin).slice(-3);
+          return (
+            <div key={feedKey(p)} className={`punch ${i === 0 ? "newest" : ""}`}>
+              <div className={`avatar ${isNeutral ? "neutral" : isOut ? "out" : "in"}`}>
+                {initials}
+              </div>
+              <div className="punch-main">
+                <div className="punch-row">
+                  {name ? (
+                    <>
+                      <strong>{name}</strong>
+                      <span className="name mono">PIN {pin}</span>
+                    </>
+                  ) : (
+                    <strong>PIN {pin}</strong>
+                  )}
                   <span
-                    className={`badge ${offset.kind === "ahead" ? "red" : "amber"}`}
-                    title={offset.title}
+                    className={`badge ${isNeutral ? "grey" : isOut ? "red" : "green"}`}
+                    title={
+                      isNeutral
+                        ? "First half of the day — check-in stays at the first scan"
+                        : undefined
+                    }
                   >
-                    {offset.label}
+                    {statusLabel}
                   </span>
-                )}
-              </div>
-              <div className="punch-meta">
-                <span title="Device clock — the time the K90 Pro stamped on this punch">
-                  {fmt(time)}
-                </span>
-                {receivedAt && (
-                  <>
-                    <span className="sep">·</span>
-                    <span
-                      className={offset ? "drift" : undefined}
-                      title="Server clock — when this punch reached the database"
-                    >
-                      recv {fmtReceived(receivedAt, time)}
+                  {p.duplicate && (
+                    <span className="badge amber" title="Within the de-bounce window — not counted">
+                      repeat scan
                     </span>
-                  </>
-                )}
-                <span className="sep">·</span>
-                <span>{VERIFY_ICON[verifyLabel] || "•"} {verifyLabel || "unknown verify"}</span>
-                <span className="sep hide-sm">·</span>
-                <span className="mono hide-sm">{sn}</span>
+                  )}
+                  {offset && (
+                    <span
+                      className={`badge ${offset.kind === "ahead" ? "red" : "amber"}`}
+                      title={offset.title}
+                    >
+                      {offset.label}
+                    </span>
+                  )}
+                </div>
+                <div className="punch-meta">
+                  <span title="Device clock — the time the K90 Pro stamped on this punch">
+                    {fmt(time)}
+                  </span>
+                  {receivedAt && (
+                    <>
+                      <span className="sep">·</span>
+                      <span
+                        className={offset ? "drift" : undefined}
+                        title="Server clock — when this punch reached the database"
+                      >
+                        recv {fmtReceived(receivedAt, time)}
+                      </span>
+                    </>
+                  )}
+                  <span className="sep">·</span>
+                  <span>{VERIFY_ICON[verifyLabel] || "•"} {verifyLabel || "unknown verify"}</span>
+                  <span className="sep hide-sm">·</span>
+                  <span className="mono hide-sm">{sn}</span>
+                </div>
               </div>
+              <div className="punch-ago">{ago(time)}</div>
             </div>
-            <div className="punch-ago">{ago(time)}</div>
-          </div>
-        );
-      })}
-      {visible.length < all.length && (
-        <button className="btn feed-more" onClick={() => setLimit("all")}>
-          Show all {all.length} punches from today
-        </button>
-      )}
-    </div>
+          );
+        })}
+        {visible.length < all.length && (
+          <button className="btn feed-more" onClick={() => setLimit("all")}>
+            Show all {all.length} punches from today
+          </button>
+        )}
+      </div>
     </>
   );
 }

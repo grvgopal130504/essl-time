@@ -12,7 +12,8 @@ import { localIPv4Addresses } from "./utils/network.js";
 import { pingDb } from "./db/pool.js";
 import { iclockRouter } from "./routes/iclock.js";
 import { apiRouter } from "./routes/api.js";
-import { attachWebSocket } from "./services/eventHub.js";
+import { attachWebSocket, hydrateDevices } from "./services/eventHub.js";
+import { listDevices } from "./db/repository.js";
 import { loadEmployeeCache } from "./services/employeeCache.js";
 import { loadTodayState, pruneDayState } from "./services/attendanceRules.js";
 import { rolloverIfNeeded, startFeedRollover } from "./services/feedStore.js";
@@ -141,6 +142,9 @@ server.listen(config.port, config.host, async () => {
     if (ok) {
       log.ok("PostgreSQL connected");
       await loadEmployeeCache();
+      // Known devices (and their names) before any of them polls again.
+      const n = hydrateDevices(await listDevices());
+      if (n) log.ok(`Loaded ${n} device(s) from database`);
       await loadTodayState();
       // Drop any feed rows left over from a previous day before serving them.
       await rolloverIfNeeded();

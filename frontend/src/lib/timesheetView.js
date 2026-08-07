@@ -15,11 +15,14 @@
  * days expects to find it.
  */
 export const DAY_TYPES = [
+  ["PRESENT", "Present — any"],
   ["FULL_DAY", "Full Day"],
   ["HALF_ANY", "Half Day — any"],
   ["HALF_FIRST", "Half Day (1st half)"],
   ["HALF_SECOND", "Half Day (2nd half)"],
   ["HALF_NO_OUT", "Half Day (no check-out)"],
+  ["ABSENT", "Absent"],
+  ["WEEKLY_OFF", "Weekly Off"],
 ];
 
 const isHalf = (d) => d.dayType.startsWith("HALF_DAY");
@@ -33,11 +36,15 @@ const inFirstHalf = (d) => d.hasFirstHalf ?? d.dayType === "HALF_DAY_FIRST";
 const inSecondHalf = (d) => d.hasSecondHalf ?? d.dayType === "HALF_DAY_SECOND";
 
 const DAY_TYPE_MATCH = {
+  // "Present" is the old behaviour of this table — days that had scans at all.
+  PRESENT: (d) => d.dayType === "FULL_DAY" || isHalf(d),
   FULL_DAY: (d) => d.dayType === "FULL_DAY",
   HALF_ANY: isHalf,
   HALF_FIRST: (d) => isHalf(d) && inFirstHalf(d),
   HALF_SECOND: (d) => isHalf(d) && inSecondHalf(d),
   HALF_NO_OUT: (d) => d.dayType === "HALF_DAY_NO_OUT",
+  ABSENT: (d) => d.dayType === "ABSENT",
+  WEEKLY_OFF: (d) => d.dayType === "WEEKLY_OFF",
 };
 
 export const FLAGS = [
@@ -98,9 +105,14 @@ export const empKey = (d) => `${d.deviceSn ?? d.device_sn}:${d.pin}`;
 /** none -> asc -> desc -> none */
 export const nextDir = (dir) => (dir === null ? "asc" : dir === "asc" ? "desc" : null);
 
-export function filterDays(days, { employee = "", query = "", dayType = "", flag = "" } = {}) {
+export function filterDays(
+  days,
+  { employee = "", query = "", dayType = "", flag = "", device = "" } = {}
+) {
   const q = query.trim().toLowerCase();
   return days.filter((d) => {
+    // Empty device means "All" — the serial is never compared in that case.
+    if (device && (d.deviceSn ?? d.device_sn) !== device) return false;
     if (employee && empKey(d) !== employee) return false;
     if (dayType && !(DAY_TYPE_MATCH[dayType] ?? ((x) => x.dayType === dayType))(d)) return false;
     if (flag === "__any" && !d.flags.length) return false;
@@ -136,10 +148,14 @@ export function summarise(days) {
   const worked = days.filter((d) => d.hours !== null);
   return {
     days: days.length,
-    employees: new Set(days.map(empKey)).size,
+    // Absent rows are manufactured, so they must not inflate the head count of
+    // people who actually turned up.
+    employees: new Set(days.filter((d) => d.effectiveScans > 0).map(empKey)).size,
     hours: Number(worked.reduce((s, d) => s + d.hours, 0).toFixed(2)),
     review: days.filter((d) => d.needsReview).length,
     fullDays: days.filter((d) => d.dayType === "FULL_DAY").length,
     halfDays: days.filter((d) => d.dayType.startsWith("HALF_DAY")).length,
+    absentDays: days.filter((d) => d.dayType === "ABSENT").length,
+    weeklyOffDays: days.filter((d) => d.dayType === "WEEKLY_OFF").length,
   };
 }

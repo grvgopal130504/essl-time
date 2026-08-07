@@ -4,6 +4,24 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>eSSL K90 Pro — Live Attendance</title>
+    <!--
+      Paint the theme before the first frame. Doing this in React would flash
+      the dark default for a beat on a light-mode machine.
+    -->
+    <script>
+      (function () {
+        try {
+          var c = localStorage.getItem("essl.theme");
+          var dark =
+            c === "dark" ||
+            (c !== "light" &&
+              (!window.matchMedia || window.matchMedia("(prefers-color-scheme: dark)").matches));
+          document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+        } catch (e) {
+          document.documentElement.setAttribute("data-theme", "dark");
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

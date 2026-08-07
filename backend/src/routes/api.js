@@ -9,6 +9,7 @@ import {
   listRawLogs,
   todayStats,
   queueCommand,
+  setDeviceName,
   setEmployeeName,
   listPinsSeen,
   timesheet,
@@ -17,7 +18,13 @@ import {
 } from "../db/repository.js";
 import { feedDay, rolloverIfNeeded, bufferedFeed } from "../services/feedStore.js";
 import { localDate } from "../services/attendanceRules.js";
-import { recentPunches, recentRaw, deviceState, emitEmployee } from "../services/eventHub.js";
+import {
+  recentPunches,
+  recentRaw,
+  deviceState,
+  emitEmployee,
+  setDeviceLabel,
+} from "../services/eventHub.js";
 import { getName, setName } from "../services/employeeCache.js";
 
 export const apiRouter = express.Router();
@@ -188,6 +195,28 @@ apiRouter.get("/devices", async (_req, res) => {
   res.json(rows.length ? rows : [...deviceState.values()]);
 });
 
+/**
+ * PUT /api/devices/:sn/name   { name: "Main Gate" }
+ *
+ * A human-readable label for a serial number. Everything else keys on the
+ * serial — this is presentation only, so it is safe to change at any time.
+ */
+apiRouter.put("/devices/:sn/name", express.json(), async (req, res) => {
+  const sn = req.params.sn;
+  const name = (req.body?.name ?? "").toString().trim().slice(0, 60);
+
+  const state = setDeviceLabel(sn, name);
+  const row = await setDeviceName(sn, name);
+
+  res.json({
+    sn,
+    name: name || null,
+    persisted: !!row,
+    device: state,
+    ...(row ? {} : { warning: "Saved in memory only — database unavailable" }),
+  });
+});
+
 apiRouter.get("/employees", async (req, res) => {
   res.json(await listEmployees(req.query.deviceSn || null));
 });
@@ -250,6 +279,9 @@ apiRouter.get("/timesheet", async (req, res) => {
   const from = req.query.from || req.query.date || today;
   const to = req.query.to || req.query.date || today;
 
+  // ?absent=false turns off the manufactured rows, leaving only real punches.
+  const includeAbsent = String(req.query.absent ?? "true").toLowerCase() !== "false";
+
   const rows = await timesheet({
     from,
     to,
@@ -258,6 +290,8 @@ apiRouter.get("/timesheet", async (req, res) => {
     tzOffset: config.tzOffset,
     debounceSeconds: config.debounceSeconds,
     halfDayBoundary: config.halfDayBoundary,
+    today,
+    includeAbsent,
   });
 
   const days = rows.map((r) => {
@@ -275,9 +309,24 @@ apiRouter.get("/timesheet", async (req, res) => {
     // replayed a backlog. realHours is meaningless here, not evidence of drift.
     const batchUpload = realHours !== null && realHours * 60 < config.batchUploadMinutes;
 
+    const workDate =
+      r.work_date instanceof Date ? localDate(r.work_date) : String(r.work_date).slice(0, 10);
+
+    // No scans in either half — the row was manufactured by the absence join.
+    // Parsed as UTC so the weekday can't shift with the server's timezone.
+    const noScans = r.effective_scans === 0;
+    const weekday = new Date(`${workDate}T00:00:00Z`).getUTCDay();
+    const weeklyOff = noScans && config.weekOffDays.has(weekday);
+
     // Which halves of the day were actually worked
     let dayType, dayTypeLabel;
-    if (!complete) {
+    if (weeklyOff) {
+      dayType = "WEEKLY_OFF";
+      dayTypeLabel = "Weekly Off";
+    } else if (noScans) {
+      dayType = "ABSENT";
+      dayTypeLabel = "Absent";
+    } else if (!complete) {
       // Punched in but never out. They showed up, so it's credited as a half
       // day — but the hours stay unknown rather than being invented.
       dayType = "HALF_DAY_NO_OUT";
@@ -295,7 +344,9 @@ apiRouter.get("/timesheet", async (req, res) => {
 
     // Flags never change the numbers — they only ask a human to look.
     const flags = [];
-    if (!complete)
+    // An absent day isn't a "short day" — there is nothing to review, the
+    // person simply wasn't there.
+    if (!complete && !noScans)
       flags.push({
         code: "SHORT_DAY",
         label: "Short day",
@@ -344,8 +395,7 @@ apiRouter.get("/timesheet", async (req, res) => {
       deviceSn: r.device_sn,
       pin: r.pin,
       employeeName: r.employee_name || getName(r.device_sn, r.pin),
-      workDate:
-        r.work_date instanceof Date ? localDate(r.work_date) : String(r.work_date).slice(0, 10),
+      workDate,
       checkIn: r.first_punch,
       checkOut: complete ? r.last_punch : null,
       // Server-clock timestamps for those same two punches.
@@ -374,7 +424,9 @@ apiRouter.get("/timesheet", async (req, res) => {
   res.json({
     from,
     to,
-    rule: `check-in = first scan (never moves); check-out = latest scan; day split at ${config.halfDayBoundary}`,
+    rule: `check-in = first scan (never moves); check-out = latest scan; day split at ${config.halfDayBoundary}; no scans in either half = absent`,
+    includeAbsent,
+    weekOffDays: [...config.weekOffDays],
     timezone: config.tzOffset,
     debounceSeconds: config.debounceSeconds,
     halfDayBoundary: config.halfDayBoundary,
@@ -392,6 +444,8 @@ apiRouter.get("/timesheet", async (req, res) => {
       needsReview: days.filter((d) => d.needsReview).length,
       fullDays: days.filter((d) => d.dayType === "FULL_DAY").length,
       halfDays: days.filter((d) => d.dayType.startsWith("HALF_DAY")).length,
+      absentDays: days.filter((d) => d.dayType === "ABSENT").length,
+      weeklyOffDays: days.filter((d) => d.dayType === "WEEKLY_OFF").length,
       missingCheckOut: days.filter((d) => d.dayType === "HALF_DAY_NO_OUT").length,
       clockDrift: days.filter((d) => d.flags.some((f) => f.code === "CLOCK_DRIFT")).length,
       batchUploads: days.filter((d) => d.flags.some((f) => f.code === "BATCH_UPLOAD")).length,

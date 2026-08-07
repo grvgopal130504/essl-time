@@ -13,6 +13,6 @@
     "frontend": "npm --prefix frontend run dev",
     "simulate": "npm --prefix backend run simulate",
     "test:timesheet": "npm --prefix backend run test:timesheet",
-    "test": "npm --prefix backend run test:timesheet && npm --prefix backend run test:feed-reset && npm --prefix backend run test:feed-rollover && npm --prefix frontend run test:view && npm --prefix frontend run test:feed"
+    "test": "npm --prefix backend run test:timesheet && npm --prefix backend run test:absence && npm --prefix backend run test:feed-reset && npm --prefix backend run test:feed-rollover && npm --prefix frontend run test:view && npm --prefix frontend run test:feed"
   }
 }

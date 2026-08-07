@@ -8,6 +8,8 @@
     "build": "vite build",
     "test:view": "node scripts/test-timesheet-view.js",
     "test:feed": "node scripts/test-feed-view.js",
+    "test:device": "node scripts/test-device-filter.js",
+    "test:theme": "node scripts/test-theme.js",
     "preview": "vite preview"
   },
   "dependencies": {

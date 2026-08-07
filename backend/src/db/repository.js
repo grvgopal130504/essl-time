@@ -139,6 +139,22 @@ export async function purgeFeedExcept(workDate) {
   return res?.rowCount ?? 0;
 }
 
+/**
+ * Friendly label for a device, typed by a human on the Devices tab.
+ * The row is created if the device hasn't handshaken yet, so a name can be
+ * pre-assigned to a serial before it ever connects.
+ */
+export async function setDeviceName(sn, name) {
+  const res = await safeQuery(
+    `INSERT INTO devices (serial_number, name)
+     VALUES ($1, $2)
+     ON CONFLICT (serial_number) DO UPDATE SET name = EXCLUDED.name
+     RETURNING *`,
+    [sn, name || null]
+  );
+  return res?.rows?.[0] || null;
+}
+
 export async function listDevices() {
   const res = await safeQuery(`SELECT * FROM devices ORDER BY last_seen_at DESC NULLS LAST`);
   return res?.rows || [];
@@ -230,8 +246,13 @@ export function timesheetQuery({
   tzOffset,
   debounceSeconds = 120,
   halfDayBoundary = "13:00",
+  today,
+  includeAbsent = true,
 }) {
   const params = [tzOffset, from, to, `${debounceSeconds} seconds`, halfDayBoundary];
+  // $6 only exists when the absence CTEs do — Postgres rejects a bind with more
+  // parameters than the statement actually references.
+  if (includeAbsent) params.push(today);
   let extra = "";
   if (deviceSn) {
     params.push(deviceSn);
@@ -241,6 +262,12 @@ export function timesheetQuery({
     params.push(pin);
     extra += ` AND a.pin = $${params.length}`;
   }
+
+  // The columns both halves of the UNION must produce, in this order.
+  const COLS = `device_sn, pin, employee_name, work_date,
+                first_punch, last_punch, first_received, last_received,
+                scans, effective_scans, has_first_half, has_second_half,
+                hours, real_hours`;
 
   const text = `WITH marked AS (
        SELECT a.device_sn,
@@ -290,22 +317,81 @@ export function timesheetQuery({
          FROM eff f
          LEFT JOIN employees e ON e.device_sn = f.device_sn AND e.pin = f.pin
         GROUP BY f.device_sn, f.pin, e.name, f.work_date
-     )
-     SELECT a.*,
-            -- Device-clock span.
-            CASE WHEN a.last_punch > a.first_punch
-                 THEN ROUND(EXTRACT(EPOCH FROM (a.last_punch - a.first_punch)) / 3600.0, 2)
-            END AS hours,
-            -- Server-clock span. Immune to a wrong RTC on the device; equals
-            -- ~0 when the device dumped the whole day in one batch upload.
-            CASE WHEN a.last_received IS NOT NULL
-                  AND a.first_received IS NOT NULL
-                  AND a.effective_scans > 1
-                 THEN ROUND(
-                        EXTRACT(EPOCH FROM (a.last_received - a.first_received)) / 3600.0, 2)
-            END AS real_hours
-       FROM agg a
-      ORDER BY a.work_date DESC, a.pin`;
+     ),
+     worked AS (
+       SELECT a.*,
+              -- Device-clock span.
+              CASE WHEN a.last_punch > a.first_punch
+                   THEN ROUND(EXTRACT(EPOCH FROM (a.last_punch - a.first_punch)) / 3600.0, 2)
+              END AS hours,
+              -- Server-clock span. Immune to a wrong RTC on the device; equals
+              -- ~0 when the device dumped the whole day in one batch upload.
+              CASE WHEN a.last_received IS NOT NULL
+                    AND a.first_received IS NOT NULL
+                    AND a.effective_scans > 1
+                   THEN ROUND(
+                          EXTRACT(EPOCH FROM (a.last_received - a.first_received)) / 3600.0, 2)
+              END AS real_hours
+         FROM agg a
+     )${
+       includeAbsent
+         ? `,
+     /* ---- absence ----------------------------------------------------------
+        An absent day has no punches, so there is nothing to aggregate — the row
+        has to be manufactured. Everyone who has ever punched is crossed with
+        every date in the range, and days that produced no scans at all are what
+        remain.
+
+        Two deliberate limits:
+          * only from each person's FIRST ever punch onward, so a range that
+            predates someone joining doesn't invent months of absence for them;
+          * only up to YESTERDAY ($6 is today's local date), because someone who
+            hasn't badged in at 10am today is not absent, just not in yet.
+     ------------------------------------------------------------------------ */
+     roster AS (
+       SELECT a.device_sn,
+              a.pin,
+              MIN(((a.punch_time AT TIME ZONE 'UTC') + $1::interval)::date) AS first_seen
+         FROM attendance_logs a
+        WHERE TRUE ${extra}
+        GROUP BY a.device_sn, a.pin
+     ),
+     cal AS (
+       SELECT gs::date AS work_date
+         FROM generate_series($2::date, LEAST($3::date, $6::date - 1), interval '1 day') gs
+     ),
+     absent AS (
+       SELECT r.device_sn,
+              r.pin,
+              e.name                    AS employee_name,
+              c.work_date,
+              NULL::timestamptz         AS first_punch,
+              NULL::timestamptz         AS last_punch,
+              NULL::timestamptz         AS first_received,
+              NULL::timestamptz         AS last_received,
+              0                         AS scans,
+              0                         AS effective_scans,
+              false                     AS has_first_half,
+              false                     AS has_second_half,
+              NULL::numeric             AS hours,
+              NULL::numeric             AS real_hours
+         FROM roster r
+         CROSS JOIN cal c
+         LEFT JOIN employees e ON e.device_sn = r.device_sn AND e.pin = r.pin
+        WHERE c.work_date >= r.first_seen
+          AND NOT EXISTS (
+                SELECT 1 FROM worked w
+                 WHERE w.device_sn = r.device_sn
+                   AND w.pin = r.pin
+                   AND w.work_date = c.work_date
+              )
+     )`
+         : ""
+     }
+     SELECT ${COLS} FROM worked${
+       includeAbsent ? `\n     UNION ALL\n     SELECT ${COLS} FROM absent` : ""
+     }
+      ORDER BY work_date DESC, pin`;
 
   return { text, params };
 }

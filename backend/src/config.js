@@ -38,6 +38,16 @@ export const config = {
   // realHours collapses to ~0 through no fault of the clock.
   batchUploadMinutes: parseFloat(process.env.BATCH_UPLOAD_MINUTES || "5"),
 
+  // Weekly off days, 0 = Sunday ... 6 = Saturday. A non-punched day that falls
+  // on one of these is WEEKLY_OFF rather than ABSENT, and doesn't count against
+  // anyone. Set to an empty string to treat every day as a working day.
+  // Note: public holidays are NOT handled — those still read as ABSENT.
+  weekOffDays: new Set(
+    list(process.env.WEEK_OFF_DAYS ?? "0")
+      .map(Number)
+      .filter((n) => Number.isInteger(n) && n >= 0 && n <= 6)
+  ),
+
   // App Service sets WEBSITE_HOSTNAME automatically (e.g. essl-adms.azurewebsites.net).
   // Set PUBLIC_HOSTNAME yourself if you're behind a custom domain or another host.
   publicHostname: process.env.PUBLIC_HOSTNAME || process.env.WEBSITE_HOSTNAME || "",

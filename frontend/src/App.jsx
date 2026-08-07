@@ -7,6 +7,7 @@ import EmployeePanel from "./components/EmployeePanel.jsx";
 import Timesheet from "./components/Timesheet.jsx";
 import RawLogViewer from "./components/RawLogViewer.jsx";
 import SetupCard from "./components/SetupCard.jsx";
+import ThemeToggle from "./components/ThemeToggle.jsx";
 
 export default function App() {
   const { status, punches, rawLogs, devices, lastEventAt, names, lastNameUpdate, feedResetAt } =
@@ -54,6 +55,7 @@ export default function App() {
           <span className={`pill ${health?.database === "connected" ? "connected" : "warn"}`}>
             DB: {health?.database ?? "…"}
           </span>
+          <ThemeToggle />
         </div>
       </header>
 
@@ -85,9 +87,14 @@ export default function App() {
 
       <main className="content">
         {tab === "feed" && (
-          <PunchFeed punches={punches} names={names} feedResetAt={feedResetAt} />
+          <PunchFeed
+            punches={punches}
+            names={names}
+            devices={devices}
+            feedResetAt={feedResetAt}
+          />
         )}
-        {tab === "timesheet" && <Timesheet punches={punches} />}
+        {tab === "timesheet" && <Timesheet punches={punches} devices={devices} />}
         {tab === "employees" && <EmployeePanel devices={devices} nameUpdates={lastNameUpdate} />}
         {tab === "devices" && <DevicePanel devices={devices} />}
         {tab === "raw" && <RawLogViewer logs={rawLogs} />}

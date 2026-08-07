@@ -1,4 +1,20 @@
-:root {
+/*
+ * Theming.
+ *
+ * Every colour in this file comes from a variable — nothing is hard-coded —
+ * so the light theme below only has to restate the tokens, not the rules.
+ * `data-theme` is set on <html> by the inline script in index.html, before the
+ * first paint — that is why there is no flash of dark on a light-mode machine.
+ * React (src/lib/theme.js) takes over from there.
+ *
+ * The tint/border tokens exist because a translucent colour that reads well on
+ * a near-black panel turns into a washed-out smear on white — the alphas and
+ * hues genuinely differ per theme, so they can't be derived from --green etc.
+ */
+:root,
+[data-theme="dark"] {
+  color-scheme: dark;
+
   --bg: #0d1117;
   --panel: #161b22;
   --panel-2: #1c2230;
@@ -9,6 +25,80 @@
   --red: #f85149;
   --blue: #58a6ff;
   --amber: #d29922;
+
+  /* Badge / avatar fills */
+  --tint-green: rgba(63, 185, 80, .15);
+  --tint-red: rgba(248, 81, 73, .15);
+  --tint-blue: rgba(88, 166, 255, .15);
+  --tint-amber: rgba(210, 153, 34, .15);
+  --tint-grey: rgba(139, 148, 158, .15);
+
+  /* Whole-row tints in the timesheet — much fainter than a badge */
+  --row-warn: rgba(210, 153, 34, .06);
+  --row-absent: rgba(248, 81, 73, .06);
+
+  /* Coloured borders */
+  --border-green: #1f4d2b;
+  --border-blue: #1f4d7a;
+  --border-amber: #6b5518;
+
+  --notice-bg: rgba(88, 166, 255, .1);
+  --warn-bg: rgba(210, 153, 34, .1);
+  --page-active-bg: rgba(88, 166, 255, .1);
+
+  /* The live-pulse ring on the connected dot */
+  --ring-green: rgba(63, 185, 80, .18);
+  --ring-green-0: rgba(63, 185, 80, 0);
+  --newest-border: #2ea04326;
+  --newest-ring: rgba(63, 185, 80, .25);
+
+  /* Raw-log <pre> — deliberately darker than a panel */
+  --code-bg: #0b0f16;
+  --code-text: #b9c4d0;
+  --placeholder: #5a6472;
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+
+  --bg: #f6f8fa;
+  --panel: #ffffff;
+  --panel-2: #eef1f5;
+  --border: #d6dce4;
+  --text: #1f2328;
+  --muted: #59636e;
+  /* Darker than the dark theme's greens/ambers: these sit on white, and the
+     badges that use them are small bold text, so they need AA at 11px. */
+  --green: #15702e;
+  --red: #cf222e;
+  --blue: #0969da;
+  --amber: #8a5c00;
+
+  --tint-green: rgba(21, 112, 46, .12);
+  --tint-red: rgba(207, 34, 46, .10);
+  --tint-blue: rgba(9, 105, 218, .10);
+  --tint-amber: rgba(138, 92, 0, .13);
+  --tint-grey: rgba(89, 99, 110, .12);
+
+  --row-warn: rgba(138, 92, 0, .08);
+  --row-absent: rgba(207, 34, 46, .06);
+
+  --border-green: #aed5ba;
+  --border-blue: #b0d2f7;
+  --border-amber: #ddc389;
+
+  --notice-bg: rgba(9, 105, 218, .08);
+  --warn-bg: rgba(138, 92, 0, .09);
+  --page-active-bg: rgba(9, 105, 218, .08);
+
+  --ring-green: rgba(21, 112, 46, .18);
+  --ring-green-0: rgba(21, 112, 46, 0);
+  --newest-border: #15702e40;
+  --newest-ring: rgba(21, 112, 46, .2);
+
+  --code-bg: #f2f4f8;
+  --code-text: #384049;
+  --placeholder: #8b95a1;
 }
 
 * { box-sizing: border-box; }
@@ -48,8 +138,8 @@ code { font-family: Consolas, monospace; background: var(--panel-2); padding: 1p
   text-transform: capitalize;
 }
 .pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
-.pill.connected { color: var(--green); border-color: #1f4d2b; }
-.pill.connected .dot { background: var(--green); box-shadow: 0 0 0 3px rgba(63,185,80,.18); animation: pulse 2s infinite; }
+.pill.connected { color: var(--green); border-color: var(--border-green); }
+.pill.connected .dot { background: var(--green); box-shadow: 0 0 0 3px var(--ring-green); animation: pulse 2s infinite; }
 .pill.connecting { color: var(--amber); }
 .pill.connecting .dot { background: var(--amber); }
 .pill.disconnected, .pill.warn { color: var(--red); }
@@ -57,7 +147,13 @@ code { font-family: Consolas, monospace; background: var(--panel-2); padding: 1p
 .pill { white-space: nowrap; cursor: default; }
 .pill-sub { opacity: .6; margin-left: 2px; }
 
-@keyframes pulse { 50% { box-shadow: 0 0 0 6px rgba(63,185,80,0); } }
+/* Theme toggle — a pill that is actually a button. */
+.theme-toggle { cursor: pointer; font: inherit; font-size: 12px; text-transform: none; }
+.theme-toggle:hover { color: var(--text); border-color: var(--blue); }
+.theme-toggle:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.theme-icon { font-size: 13px; line-height: 1; }
+
+@keyframes pulse { 50% { box-shadow: 0 0 0 6px var(--ring-green-0); } }
 
 /* stats */
 .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
@@ -81,9 +177,17 @@ code { font-family: Consolas, monospace; background: var(--panel-2); padding: 1p
   display: flex; align-items: center; justify-content: space-between;
   gap: 12px; flex-wrap: wrap; margin-bottom: 12px;
 }
-.feed-pages { display: flex; gap: 4px; align-items: center; }
+.feed-pages { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+/* Device filter sits with the page-size buttons on the feed toolbar. */
+.feed-device { display: flex; align-items: center; gap: 6px; margin-right: 8px; }
+.feed-device select {
+  background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+  padding: 5px 9px; border-radius: 7px; font-size: 12.5px; font-family: inherit;
+  max-width: 260px;
+}
+.feed-device select:focus { outline: none; border-color: var(--blue); }
 .btn-page { padding: 5px 11px; font-size: 12px; min-width: 40px; }
-.btn-page.active { border-color: var(--blue); color: var(--blue); background: rgba(88,166,255,.1); }
+.btn-page.active { border-color: var(--blue); color: var(--blue); background: var(--page-active-bg); }
 .feed-more { margin-top: 4px; align-self: center; }
 .feed { display: flex; flex-direction: column; gap: 8px; }
 .punch {
@@ -91,15 +195,15 @@ code { font-family: Consolas, monospace; background: var(--panel-2); padding: 1p
   background: var(--panel); border: 1px solid var(--border);
   border-radius: 12px; padding: 12px 16px;
 }
-.punch.newest { animation: slideIn .45s ease; border-color: #2ea04326; box-shadow: 0 0 0 1px rgba(63,185,80,.25); }
+.punch.newest { animation: slideIn .45s ease; border-color: var(--newest-border); box-shadow: 0 0 0 1px var(--newest-ring); }
 @keyframes slideIn { from { opacity: 0; transform: translateY(-10px); } }
 
 .avatar {
   width: 42px; height: 42px; border-radius: 10px; flex: 0 0 42px;
   display: grid; place-items: center; font-weight: 700; font-size: 13px;
 }
-.avatar.in { background: rgba(63,185,80,.15); color: var(--green); }
-.avatar.out { background: rgba(248,81,73,.15); color: var(--red); }
+.avatar.in { background: var(--tint-green); color: var(--green); }
+.avatar.out { background: var(--tint-red); color: var(--red); }
 
 .punch-main { flex: 1; min-width: 0; }
 .punch-row { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
@@ -109,12 +213,12 @@ code { font-family: Consolas, monospace; background: var(--panel-2); padding: 1p
 .punch-ago { color: var(--muted); font-size: 12px; white-space: nowrap; }
 
 .badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; font-weight: 600; }
-.badge.green { background: rgba(63,185,80,.15); color: var(--green); }
-.badge.red { background: rgba(248,81,73,.15); color: var(--red); }
-.badge.blue { background: rgba(88,166,255,.15); color: var(--blue); }
-.badge.amber { background: rgba(210,153,34,.15); color: var(--amber); }
-.badge.grey { background: rgba(139,148,158,.15); color: var(--muted); cursor: help; }
-.avatar.neutral { background: rgba(139,148,158,.15); color: var(--muted); }
+.badge.green { background: var(--tint-green); color: var(--green); }
+.badge.red { background: var(--tint-red); color: var(--red); }
+.badge.blue { background: var(--tint-blue); color: var(--blue); }
+.badge.amber { background: var(--tint-amber); color: var(--amber); }
+.badge.grey { background: var(--tint-grey); color: var(--muted); cursor: help; }
+.avatar.neutral { background: var(--tint-grey); color: var(--muted); }
 
 /* empty */
 .empty { text-align: center; padding: 70px 20px; color: var(--muted); }
@@ -129,12 +233,17 @@ code { font-family: Consolas, monospace; background: var(--panel-2); padding: 1p
 .card.wide { grid-column: 1 / -1; }
 .card-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 .card-head h3 { margin: 0; font-size: 14.5px; font-weight: 600; }
+/* Device name editor on the Devices tab. */
+.device-name { display: flex; align-items: flex-end; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.device-name .ts-field-wide { max-width: none; }
+.device-name .badge { margin-bottom: 6px; }
+
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 7px 16px; margin: 0 0 14px; }
 .kv dt { color: var(--muted); font-size: 12.5px; }
 .kv dd { margin: 0; font-size: 12.5px; text-align: right; }
 .muted { color: var(--muted); }
 .small { font-size: 12px; }
-.notice { grid-column: 1/-1; background: rgba(88,166,255,.1); border: 1px solid #1f4d7a; color: var(--blue); padding: 10px 14px; border-radius: 8px; font-size: 13px; }
+.notice { grid-column: 1/-1; background: var(--notice-bg); border: 1px solid var(--border-blue); color: var(--blue); padding: 10px 14px; border-radius: 8px; font-size: 13px; }
 
 .btn {
   background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
@@ -154,7 +263,7 @@ code { font-family: Consolas, monospace; background: var(--panel-2); padding: 1p
 .ts-field { display: flex; flex-direction: column; gap: 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
 .ts-field input, .ts-field select {
   background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
-  padding: 6px 10px; border-radius: 7px; font-size: 13px; font-family: inherit; color-scheme: dark;
+  padding: 6px 10px; border-radius: 7px; font-size: 13px; font-family: inherit;
 }
 .ts-field input:focus, .ts-field select:focus { outline: none; border-color: var(--blue); }
 .ts-field select { max-width: 240px; }
@@ -180,9 +289,13 @@ code { font-family: Consolas, monospace; background: var(--panel-2); padding: 1p
 .th-sort:hover .sort-icon { opacity: .7; }
 .th-sort.active .sort-icon { opacity: 1; font-size: 8px; }
 .ts-rule { margin: 0 0 14px; }
-.ts-stats { grid-template-columns: repeat(4, 1fr); margin-bottom: 16px; }
+.ts-stats { grid-template-columns: repeat(5, 1fr); margin-bottom: 16px; }
 .warnstat .stat-value { color: var(--amber); }
-.row-warn { background: rgba(210,153,34,.06); }
+.absentstat .stat-value { color: var(--red); }
+.row-warn { background: var(--row-warn); }
+/* Manufactured rows — no punches existed for these days. */
+.row-absent { background: var(--row-absent); }
+.row-off td { opacity: .55; }
 .flag-badge { margin-right: 5px; cursor: help; }
 /* Real Hrs disagreeing with the device clock — the whole point of the column. */
 .drift { color: var(--amber); font-weight: 700; }
@@ -191,7 +304,7 @@ code { font-family: Consolas, monospace; background: var(--panel-2); padding: 1p
 .ts-scroll, .tbl-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .ts-scroll .emp-table { min-width: 1020px; }
 .warn-notice {
-  background: rgba(210,153,34,.1); border-color: #6b5518; color: var(--amber);
+  background: var(--warn-bg); border-color: var(--border-amber); color: var(--amber);
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px;
 }
 .btn-inline { padding: 4px 10px; font-size: 12px; margin-left: auto; }
@@ -212,7 +325,7 @@ code { font-family: Consolas, monospace; background: var(--panel-2); padding: 1p
   color: var(--text); padding: 7px 10px; border-radius: 7px; font-size: 13px; font-family: inherit;
 }
 .emp-input:focus { outline: none; border-color: var(--blue); }
-.emp-input::placeholder { color: #5a6472; font-style: italic; }
+.emp-input::placeholder { color: var(--placeholder); font-style: italic; }
 
 /* raw logs */
 .raw-list { display: flex; flex-direction: column; gap: 6px; }
@@ -231,9 +344,9 @@ code { font-family: Consolas, monospace; background: var(--panel-2); padding: 1p
 .raw-body { padding: 4px 16px 14px; border-top: 1px solid var(--border); }
 .raw-body h4 { margin: 12px 0 5px; font-size: 11px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); }
 .raw-body pre {
-  margin: 0; background: #0b0f16; border: 1px solid var(--border); border-radius: 8px;
+  margin: 0; background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px;
   padding: 10px 12px; font-size: 12px; overflow-x: auto; white-space: pre-wrap; word-break: break-word;
-  font-family: Consolas, monospace; color: #b9c4d0;
+  font-family: Consolas, monospace; color: var(--code-text);
 }
 
 /* Hidden on phones — the serial number and other low-value detail. */
@@ -298,7 +411,7 @@ code { font-family: Consolas, monospace; background: var(--panel-2); padding: 1p
   }
   /* Re-assert the review tint — the card background above would otherwise win. */
   .ts-scroll .emp-table tr.row-warn {
-    border-color: #6b5518; background: rgba(210, 153, 34, .06);
+    border-color: var(--border-amber); background: var(--row-warn);
   }
   .ts-scroll .emp-table td {
     padding: 5px 0; border-bottom: none;
